@@ -14,6 +14,7 @@ import Data.Time
 import Data.Typeable (Typeable)
 import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
+import Text.Printf
 
 import Hackage.Security.Util.Path
 import Hackage.Security.Util.FileLock (hTryLock, LockMode(ExclusiveLock), FileLockingNotSupported)
@@ -102,6 +103,7 @@ withDirLock dir = bracket takeLock releaseLock . const
             Right r -> return r
             Left e
               | t:ts <- backoff -> do
+                printf "Got exception %s. Waiting for %d seconds, then retrying.\n" (show e) t
                 threadDelay (t * 1000000)
                 go ts
               | otherwise -> throwIO e
