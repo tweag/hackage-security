@@ -7,9 +7,11 @@ module Hackage.Security.Util.IO (
   , timedIO
   ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Control.Exception
 import Data.Time
+import Data.Typeable (Typeable)
 import System.IO hiding (openTempFile, withFile)
 import System.IO.Error
 
@@ -31,6 +33,18 @@ handleDoesNotExist act =
       if isDoesNotExistError e
         then return Nothing
         else throwIO e
+
+-- | Exception thrown by 'withDirLock' when it fails to acquire the lock.
+--
+-- FIXME: this only currently applies to hTryLock, not to the directory locking
+-- fallback.
+data LockTaken = LockTaken FilePath
+  deriving (Typeable)
+
+instance Show LockTaken where
+  show (LockTaken path) = "Could not acquire the lock at " ++ show path
+
+instance Exception LockTaken
 
 -- | Attempt to create a filesystem lock in the specified directory.
 --
@@ -54,12 +68,12 @@ withDirLock dir = bracket takeLock releaseLock . const
     lock' :: FilePath
     lock' = toFilePath lock
 
-    takeLock = do
+    takeLock = retryLock $ do
         h <- openFile lock' ReadWriteMode
         handle (takeDirLock h) $ do
             gotlock <- hTryLock h ExclusiveLock
             unless gotlock $
-                fail $ "hTryLock: lock already exists: " ++ lock'
+                throwIO $ LockTaken lock'
             return (Just h)
 
     takeDirLock :: Handle -> FileLockingNotSupported -> IO (Maybe Handle)
@@ -77,6 +91,21 @@ withDirLock dir = bracket takeLock releaseLock . const
 
     releaseLock (Just h) = hClose h
     releaseLock Nothing  = removeDirectory lock
+
+    -- Retry the IO action a few times with progressive backoff
+    retryLock :: forall a . IO a -> IO a
+    retryLock a = go [1,2,5,60] -- backoff in seconds
+      where
+        go :: [Int] -> IO a
+        go backoff = do
+          try a >>= \x -> case x :: Either LockTaken a of
+            Right r -> return r
+            Left e
+              | t:ts <- backoff -> do
+                threadDelay (t * 1000000)
+                go ts
+              | otherwise -> throwIO e
+
 
 {-------------------------------------------------------------------------------
   Debugging
