@@ -1,4 +1,4 @@
-resolver: lts-7.14
+resolver: lts-12.4
 packages:
 - example-client
 - hackage-repo-tool
@@ -8,5 +8,4 @@ packages:
 - hackage-security-curl
 - hackage-security-http-client
 - precompute-fileinfo
-extra-deps:
-- http-client-0.5.5
+allow-newer: true
